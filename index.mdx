@@ -1,97 +1,73 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Reckless Chess Engine"
+description: "A competitive open-source chess engine written in Rust, consistently ranked among the world's top engines."
 ---
 
-## Setting up
+Reckless is a high-performance chess engine that communicates via the Universal Chess Interface (UCI) protocol. It combines a hand-crafted NNUE neural network with advanced alpha-beta search techniques, multi-threaded parallel search, and Syzygy endgame tablebase support.
 
-Get your documentation site up and running in minutes.
+Reckless consistently performs among the top engines in major tournaments including the [Chess.com Computer Chess Championship (CCC)](https://www.chess.com/computer-chess-championship) and [Top Chess Engine Championship (TCEC)](https://tcec-chess.com).
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Download precompiled binaries or build from source for your platform
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Connect Reckless to a UCI-compatible GUI and start analyzing
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="UCI Reference" icon="terminal" href="/uci/protocol">
+    Full reference for UCI commands and engine options
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Search & Evaluation" icon="brain" href="/internals/search">
+    Learn how Reckless evaluates positions and searches for the best move
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Engine ratings
 
-Everything you need to create world-class documentation.
+Reckless v0.9.0 is rated **3833** on SPCC and **3767** on CCRL Blitz, placing it at **#2** in its class.
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+| Version | SPCC | CCRL Blitz | CCRL 40/15 |
+| ------- | ---- | ---------- | ---------- |
+| v0.9.0  | 3833 ±4 \[#2\] | 3767 ±13 \[#2\] | 3612 ±19 \[#2\] |
+| v0.8.0  | 3777 ±4 \[#4\] | 3765 ±14 \[#2\] | 3609 ±11 \[#3\] |
+| v0.7.0  | — | 3500 ±12 \[#68\] | 3422 ±12 \[#72\] |
 
-## Need inspiration?
+## Key features
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<CardGroup cols={2}>
+  <Card title="NNUE Evaluation" icon="network-wired">
+    3-layer neural network with AVX-512, AVX2, and NEON SIMD acceleration for fast, accurate position evaluation
+  </Card>
+  <Card title="Advanced Search" icon="magnifying-glass">
+    Alpha-beta search with PVS, aspiration windows, null move pruning, singular extensions, and LMR
+  </Card>
+  <Card title="Multi-threaded" icon="microchip">
+    NUMA-aware thread pool supporting up to 512 parallel search threads
+  </Card>
+  <Card title="Syzygy Tablebases" icon="table">
+    Endgame tablebase support via the Fathom library for perfect play in late endgames
+  </Card>
+  <Card title="Chess960 Support" icon="chess-board">
+    Full Fischer Random Chess (Chess960) support via the UCI_Chess960 option
+  </Card>
+  <Card title="Profile-Guided Optimization" icon="chart-line">
+    PGO builds for maximum performance using real game data to guide compiler optimizations
+  </Card>
+</CardGroup>
+
+## Getting started
+
+<Steps>
+  <Step title="Download or build Reckless">
+    Grab a precompiled binary from the [GitHub Releases page](https://github.com/codedeliveryservice/Reckless/releases) or [build from source](/building/from-source).
+  </Step>
+  <Step title="Install a UCI-compatible GUI">
+    Reckless works with any UCI GUI. Popular choices include [Cute Chess](https://github.com/cutechess/cutechess), [En Croissant](https://encroissant.org), and [Nibbler](https://github.com/rooklift/nibbler).
+  </Step>
+  <Step title="Add the engine to your GUI">
+    Point your GUI to the Reckless binary. The engine will be detected automatically as a UCI engine.
+  </Step>
+  <Step title="Configure options">
+    Adjust [UCI options](/uci/options) such as `Hash`, `Threads`, and optionally `SyzygyPath` for tablebase support.
+  </Step>
+</Steps>

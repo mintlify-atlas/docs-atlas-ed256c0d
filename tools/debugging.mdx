@@ -1,0 +1,96 @@
+---
+title: "Debugging tools"
+description: "Built-in commands for inspecting board state, evaluations, and build configuration during development."
+---
+
+Reckless includes several commands that go beyond the standard UCI protocol. These are available in both CLI and interactive UCI sessions and are designed to help you understand what the engine is doing at a given moment.
+
+## `d` — display board
+
+```text
+d
+```
+
+Prints the current board position in a human-readable grid, along with the FEN string for the position.
+
+Example output after `position startpos`:
+
+```text
+ +---+---+---+---+---+---+---+---+
+ | r | n | b | q | k | b | n | r |
+ +---+---+---+---+---+---+---+---+
+ | p | p | p | p | p | p | p | p |
+ +---+---+---+---+---+---+---+---+
+ |   |   |   |   |   |   |   |   |
+ +---+---+---+---+---+---+---+---+
+ |   |   |   |   |   |   |   |   |
+ +---+---+---+---+---+---+---+---+
+ |   |   |   |   |   |   |   |   |
+ +---+---+---+---+---+---+---+---+
+ |   |   |   |   |   |   |   |   |
+ +---+---+---+---+---+---+---+---+
+ | P | P | P | P | P | P | P | P |
+ +---+---+---+---+---+---+---+---+
+ | R | N | B | Q | K | B | N | R |
+ +---+---+---+---+---+---+---+---+
+
+rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+```
+
+**When to use it:** Use `d` to confirm that the position has been loaded correctly before running a search or perft test. If you're scripting position setup through a sequence of moves, `d` lets you verify the board state at any point.
+
+---
+
+## `eval` — NNUE evaluation
+
+```text
+eval
+```
+
+Prints the NNUE evaluation of the current position from White's perspective, in centipawns.
+
+Example output:
+
+```text
+34
+```
+
+A positive value means White has an advantage; a negative value means Black has an advantage. The score is always reported from White's perspective regardless of which side is to move.
+
+**When to use it:** Use `eval` to inspect what the network thinks about a specific position without running a full search. This is useful when:
+
+- Tuning or verifying NNUE weights after training
+- Checking whether the evaluation of a test position falls within a reasonable range
+- Comparing evaluation before and after a code change that affects the network inference path
+
+<Note>
+  `eval` performs a full NNUE refresh from the current board state before computing the score. It does not use incrementally accumulated accumulator state, so the value is always exact.
+</Note>
+
+---
+
+## `compiler` — build information
+
+```text
+compiler
+```
+
+Prints the compiler version, target architecture, and feature flags used to compile the current binary.
+
+Example output:
+
+```text
+Compiler Version: rustc 1.88.0 (e8f27be8a 2025-05-14)
+Compiler Target: x86_64-unknown-linux-gnu
+Compiler Features: avx2,bmi2,popcnt
+```
+
+**When to use it:** Use `compiler` to confirm exactly what binary you are running. This is particularly helpful when:
+
+- Verifying that a build compiled with `-C target-cpu=native` actually enabled the expected CPU features (such as AVX-512 or AVX2)
+- Diagnosing performance differences between builds — two binaries with identical source but different feature flags will have different NPS
+- Reporting issues, so that the exact build environment is captured alongside any bug report
+
+<Tip>
+  If you are comparing bench results across binaries, run `compiler` on each to confirm they were compiled with the same features. Different CPU feature flags — especially the presence or absence of AVX-512 — can cause significant NPS differences that have nothing to do with algorithm changes.
+</Tip>

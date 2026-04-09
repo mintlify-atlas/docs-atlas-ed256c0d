@@ -1,0 +1,91 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "Reckless Chess Engine",
+  "projectDescription": "A competitive open-source chess engine written in Rust, using NNUE evaluation and advanced alpha-beta search, designed to interface with UCI-compatible chess GUIs.",
+  "theme": "aspen",
+  "primaryColor": "#94cb04",
+  "lightColor": "#545454",
+  "darkColor": null,
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get Started",
+        "pages": [
+          "introduction",
+          "installation",
+          "quickstart"
+        ]
+      },
+      {
+        "group": "UCI Reference",
+        "pages": [
+          "uci/protocol",
+          "uci/options",
+          "uci/commands"
+        ]
+      },
+      {
+        "group": "Search & Evaluation",
+        "pages": [
+          "internals/search",
+          "internals/nnue",
+          "internals/move-ordering",
+          "internals/time-management"
+        ]
+      },
+      {
+        "group": "Building & Optimization",
+        "pages": [
+          "building/from-source",
+          "building/pgo",
+          "building/syzygy"
+        ]
+      },
+      {
+        "group": "Testing & Tools",
+        "pages": [
+          "tools/bench",
+          "tools/perft",
+          "tools/debugging"
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "NNUE evaluation with 3-layer network (L1=768, L2=16, L3=32) and AVX-512/AVX2/NEON SIMD acceleration",
+    "Alpha-beta search with iterative deepening, aspiration windows, and principal variation search (PVS)",
+    "Advanced pruning: Null Move Pruning, Reverse Futility Pruning, Razoring, ProbCut, Late Move Pruning",
+    "Singular extensions with double and triple extension support",
+    "Late Move Reductions (LMR) with history-based adjustments",
+    "Multi-threaded search with NUMA-aware thread pool (up to 512 threads)",
+    "Syzygy endgame tablebase support via Fathom library",
+    "Chess960 (Fischer Random) support",
+    "MultiPV analysis mode",
+    "Profile-Guided Optimization (PGO) build support",
+    "Transposition table with aging and cluster-based replacement policy",
+    "Correction histories for evaluation refinement"
+  ],
+  "publicApiSurface": [
+    "uci — enter UCI mode",
+    "isready — readiness check",
+    "go [depth|movetime|nodes|wtime/btime/winc/binc|infinite] — start search",
+    "position [startpos|fen <fen>] [moves <move>...] — set board position",
+    "setoption name <name> value <value> — configure engine option",
+    "ucinewgame — reset engine state for new game",
+    "stop — halt search",
+    "quit — exit engine",
+    "bench [args] — run performance benchmark",
+    "perft <depth> — count leaf nodes at given depth",
+    "eval — print NNUE evaluation of current position",
+    "d — display current board position and FEN",
+    "compiler — print compiler version and build flags",
+    "UCI option: Hash (1–262144 MB, default 16)",
+    "UCI option: Threads (1–512, default 1)",
+    "UCI option: MultiPV (1–218, default 1)",
+    "UCI option: UCI_Chess960 (bool, default false)",
+    "UCI option: Minimal (bool, default false)",
+    "UCI option: MoveOverhead (0–2000 ms, default 100)",
+    "UCI option: Clear Hash (button)",
+    "UCI option: SyzygyPath (string, requires syzygy feature)"
+  ]
+}

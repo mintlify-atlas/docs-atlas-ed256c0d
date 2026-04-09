@@ -1,0 +1,133 @@
+---
+title: "UCI options"
+description: "All configurable options exposed by Reckless through the UCI setoption command."
+---
+
+Reckless exposes its configurable settings through the standard UCI `setoption` command. Your GUI will typically present these as a settings panel, but you can also set them manually in a terminal session.
+
+**Syntax:**
+
+```text
+setoption name <name> value <value>
+```
+
+For button-type options (which have no value), omit the `value` part:
+
+```text
+setoption name Clear Hash
+```
+
+## Options overview
+
+| Name | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `Hash` | spin | `16` | 1 – 262144 | Transposition table size in MB |
+| `Threads` | spin | `1` | 1 – 512 | Number of parallel search threads |
+| `MoveOverhead` | spin | `100` | 0 – 2000 | Time buffer for GUI/network latency in ms |
+| `Minimal` | check | `false` | — | Suppress verbose `info` lines during search |
+| `Clear Hash` | button | — | — | Clear the transposition table |
+| `UCI_Chess960` | check | `false` | — | Enable Chess960 (Fischer Random) castling rules |
+| `MultiPV` | spin | `1` | 1 – 218 | Number of principal variations to report |
+| `SyzygyPath` | string | *(empty)* | — | Path to Syzygy endgame tablebase files |
+
+---
+
+## Detailed reference
+
+<ParamField path="Hash" type="spin" default="16" placeholder="1–262144">
+  Size of the transposition table (TT) in megabytes. The TT caches search results from previously analyzed positions, so a larger table reduces re-computation — especially in long games and endgames where positions recur frequently.
+
+  Set this to as much RAM as you can spare. As a rough guide, 256 MB is comfortable for analysis, and 1–2 GB is reasonable for serious play. Values above your available physical RAM will cause the OS to swap and hurt performance.
+
+  ```text
+  setoption name Hash value 512
+  ```
+
+  After resizing, the table is cleared automatically.
+</ParamField>
+
+<ParamField path="Threads" type="spin" default="1" placeholder="1–512">
+  Number of parallel search threads. Reckless uses a shared-memory thread pool; all threads search the same position simultaneously and share the transposition table.
+
+  Set this to the number of physical cores on your machine. Hyperthreaded (logical) cores generally give diminishing returns for chess search. Avoid setting `Threads` higher than the physical core count as it can hurt rather than help.
+
+  ```text
+  setoption name Threads value 8
+  ```
+</ParamField>
+
+<ParamField path="MoveOverhead" type="spin" default="100" placeholder="0–2000">
+  A safety buffer in milliseconds subtracted from the available time before Reckless computes its time allocation for each move. This accounts for network latency between the engine and GUI, GUI processing time, and other sources of delay.
+
+  If you notice Reckless losing on time when playing fast time controls, increase this value. If you are running the engine locally with negligible latency, you can lower it. The default of 100 ms is suitable for most configurations.
+
+  ```text
+  setoption name MoveOverhead value 50
+  ```
+</ParamField>
+
+<ParamField path="Minimal" type="check" default="false">
+  When set to `true`, Reckless suppresses the verbose `info` lines that are printed during search (depth, score, nodes, PV, etc.). Only the final `bestmove` line is emitted.
+
+  This is useful when piping engine output to another program or script that does not need the intermediate search information.
+
+  ```text
+  setoption name Minimal value true
+  ```
+</ParamField>
+
+<ParamField path="Clear Hash" type="button">
+  Immediately clears all entries from the transposition table without resizing it. Use this when you want to start a fresh search with no cached positions — for example, when switching between unrelated positions in analysis.
+
+  ```text
+  setoption name Clear Hash
+  ```
+
+  Reckless confirms the operation with:
+
+  ```text
+  info string Hash cleared
+  ```
+</ParamField>
+
+<ParamField path="UCI_Chess960" type="check" default="false">
+  Enables support for Chess960 (Fischer Random Chess). When set to `true`, Reckless interprets castling moves using the FRC convention where the king moves to the rook's starting square (e.g., `e1a1` instead of `e1c1`).
+
+  Enable this option before loading a Chess960 position. Most GUIs set it automatically when you start a Chess960 game.
+
+  ```text
+  setoption name UCI_Chess960 value true
+  ```
+</ParamField>
+
+<ParamField path="MultiPV" type="spin" default="1" placeholder="1–218">
+  Number of principal variations (lines) to search and report. When set to a value greater than 1, Reckless searches for and outputs the top N distinct moves and their continuations. Each line is reported on a separate `info` line with a `multipv` index.
+
+  MultiPV mode is useful for analysis — for example, setting `MultiPV 3` lets you see the top three candidate moves side by side. Note that MultiPV mode is slower than single-PV search because the engine must find and exclude each best move before searching for the next.
+
+  ```text
+  setoption name MultiPV value 3
+  ```
+
+  <Warning>
+    Setting `MultiPV` above 1 during engine matches will degrade playing strength. Use it for analysis only.
+  </Warning>
+</ParamField>
+
+<ParamField path="SyzygyPath" type="string" default="">
+  Path to the directory containing Syzygy endgame tablebase files (`.rtbw` and `.rtbz`). When a valid path is provided and the Syzygy feature is compiled in, Reckless will probe the tablebases in positions with few enough pieces to get exact win/draw/loss results.
+
+  ```text
+  setoption name SyzygyPath value /home/user/syzygy
+  ```
+
+  Reckless responds with the number of pieces covered by the loaded tablebases:
+
+  ```text
+  info string Loaded Syzygy tablebases with 6 pieces
+  ```
+
+  <Note>
+    `SyzygyPath` is only available in builds compiled with the `syzygy` feature flag. Standard release binaries include this feature by default.
+  </Note>
+</ParamField>

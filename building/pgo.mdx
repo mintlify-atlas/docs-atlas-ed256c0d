@@ -1,0 +1,79 @@
+---
+title: "Profile-guided optimization"
+description: "Build a faster Reckless binary using profile-guided optimization (PGO)."
+---
+
+Profile-guided optimization (PGO) is a compiler technique where the engine is first run on representative workloads to collect profiling data, and then recompiled with that data so the compiler can make better inlining, branching, and layout decisions. For a chess engine this typically means running the `bench` command to profile the search code paths that matter most during play.
+
+<Tip>
+  PGO typically provides a 5–10% performance gain over a standard release build with `-C target-cpu=native`.
+</Tip>
+
+## Prerequisites
+
+In addition to the standard [build prerequisites](/building/from-source#prerequisites), you need the LLVM tools component and the `cargo-pgo` helper:
+
+```bash
+rustup component add llvm-tools
+cargo install cargo-pgo
+```
+
+## Building with PGO
+
+<CodeGroup>
+
+```bash Using make (recommended)
+make pgo
+```
+
+```bash Manual steps
+cargo pgo instrument
+cargo pgo run -- bench
+cargo pgo optimize
+```
+
+</CodeGroup>
+
+Both approaches produce the same result. The `make pgo` target runs the three manual steps and then moves the finished binary to `./reckless` in the repository root.
+
+### What each step does
+
+<Steps>
+  <Step title="Instrument">
+    ```bash
+    cargo pgo instrument
+    ```
+
+    Compiles the engine with instrumentation that records which code paths are executed at runtime.
+  </Step>
+
+  <Step title="Run bench to collect profiles">
+    ```bash
+    cargo pgo run -- bench
+    ```
+
+    Runs the engine's built-in benchmark on a set of positions. This exercises the hot search paths and writes profiling data to disk.
+  </Step>
+
+  <Step title="Optimize">
+    ```bash
+    cargo pgo optimize
+    ```
+
+    Recompiles the engine using the collected profile data to guide optimization decisions.
+  </Step>
+</Steps>
+
+## Binary location
+
+After `make pgo`, the binary is placed at `./reckless` in the repository root.
+
+When running the manual steps without `make`, the binary is placed in the target directory:
+
+```
+./target/<host-tuple>/release/reckless
+```
+
+<Note>
+  The exact path depends on your host platform. For example, on a typical Linux x86-64 machine it will be `./target/x86_64-unknown-linux-gnu/release/reckless`. Run `rustc --print host-tuple` to find your host tuple.
+</Note>

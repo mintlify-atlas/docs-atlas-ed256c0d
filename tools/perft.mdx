@@ -1,0 +1,132 @@
+---
+title: "Perft testing"
+description: "Count leaf nodes at a given depth to verify that move generation is correct."
+---
+
+Perft (performance test) counts the number of leaf nodes reachable from a given position at a given depth. Because the correct counts for most standard positions are well-known, perft is the standard way to verify that a chess engine's move generator is producing exactly the right set of legal moves.
+
+If your perft count matches the expected value, move generation is almost certainly correct for that position. If it doesn't match, there is a bug somewhere — an illegal move being generated, a legal move being missed, or a position not being updated correctly after a move.
+
+## Commands
+
+Reckless provides two perft commands. Both operate on the board position currently loaded via `position`.
+
+### `perft <depth>`
+
+```text
+perft 5
+```
+
+Runs perft to the given depth and prints a formatted table. Each root move is shown with its subtree node count, elapsed time, and speed in kilonodes per second, followed by a total summary.
+
+```text
+------------------------------------------------------------
+        Move        Nodes       Elapsed             NPS
+------------------------------------------------------------
+  1       e2e4    4865609        1.243s       3914810.1 kN/s
+  ...
+------------------------------------------------------------
+       Total    119060324       28.914s       4117284.2 kN/s
+------------------------------------------------------------
+```
+
+This breakdown is useful when debugging: if the total is wrong, you can compare per-move counts against a reference to pinpoint exactly which move is producing the wrong subtree.
+
+### `simpleperft <depth>`
+
+```text
+simpleperft 5
+```
+
+Produces the same node counts in a compact format without timing information:
+
+```text
+e2e4: 4865609
+d2d4: 4865609
+...
+total: 119060324
+```
+
+Use `simpleperft` when you want to diff the output against another engine or a reference tool — the plain format is easier to parse.
+
+## How it works
+
+Both commands iterate over all legal moves at the root, make each move, recursively count nodes down to the target depth, then undo the move.
+
+At depth 0 the count is 1 (the node itself). At depth 1 the implementation uses the move list length directly as an optimization instead of recursing further. For all other depths, it recurses through `generate_all_moves` and accumulates counts.
+
+The internal recursion is bulk-counting at depth 1, which is a standard perft optimization: rather than making and unmaking every move at the final ply, it counts the number of generated moves and returns immediately.
+
+## Running perft
+
+<Steps>
+  <Step title="Set the position">
+    Load a position using the `position` command. To use the starting position:
+
+    ```text
+    position startpos
+    ```
+
+    To load an arbitrary FEN:
+
+    ```text
+    position fen r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1
+    ```
+  </Step>
+
+  <Step title="Run perft">
+    Call perft with the depth you want to test:
+
+    ```text
+    perft 4
+    ```
+  </Step>
+
+  <Step title="Compare the result">
+    Check the total node count against the expected value for the position and depth.
+  </Step>
+</Steps>
+
+## Expected counts for the starting position
+
+These are the canonical node counts from the starting position. They are universally agreed upon and serve as a reference for any chess engine implementation.
+
+| Depth | Node count      |
+| ----- | --------------- |
+| 1     | 20              |
+| 2     | 400             |
+| 3     | 8,902           |
+| 4     | 197,281         |
+| 5     | 4,865,609       |
+| 6     | 119,060,324     |
+
+Run them in sequence to narrow down where a bug first appears:
+
+```text
+position startpos
+perft 1
+perft 2
+perft 3
+perft 4
+perft 5
+```
+
+<Note>
+  Depth 6 takes considerably longer than depths 1–5. For quick sanity checks during development, depth 4 or 5 is usually sufficient.
+</Note>
+
+## Debugging with per-move counts
+
+When the total node count is wrong, use the per-move breakdown from `perft` to isolate the problem:
+
+1. Run `perft <depth>` in Reckless and note the per-move counts.
+2. Run the same position at the same depth in a reference engine (or against known perft tables).
+3. Find the root move where the counts diverge.
+4. Set the position after that move and repeat at `depth - 1`.
+5. Continue narrowing down until you reach the exact move or position causing the discrepancy.
+
+This technique — sometimes called "perft divide" — makes it possible to pinpoint move generation bugs to a specific position and ply.
+
+<Tip>
+  `simpleperft` output is easier to diff against reference output. Redirect both to files and use a diff tool to find the diverging move instantly.
+</Tip>

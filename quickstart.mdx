@@ -1,80 +1,87 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: "Quick start"
+description: "Connect Reckless to a chess GUI and verify it's working."
+keywords: ["quickstart", "GUI", "UCI", "Cute Chess", "En Croissant", "Nibbler", "setup"]
 ---
 
-## Get started in three steps
-
-Get your documentation site running locally and make your first customization.
-
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+Reckless is not a standalone chess program. It is a chess engine — a back-end process that calculates moves. To play against it or use it for analysis, you need to connect it to a UCI-compatible graphical user interface (GUI).
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  UCI (Universal Chess Interface) is a standard communication protocol that lets chess GUIs talk to engines. The GUI sends commands like `go` and `position`, and the engine responds with its best move. You don't need to understand UCI in detail to use Reckless — the GUI handles it automatically.
 </Note>
+
+## Compatible GUIs
+
+Any UCI-compatible chess GUI will work with Reckless. The following are commonly used options:
+
+| GUI | Platform | Notes |
+| --- | -------- | ----- |
+| [Cute Chess](https://github.com/cutechess/cutechess) | Windows, macOS, Linux | Widely used for engine tournaments and testing |
+| [En Croissant](https://encroissant.org) | Windows, macOS, Linux | Modern interface with built-in engine management |
+| [Nibbler](https://github.com/rooklift/nibbler) | Windows, macOS, Linux | Designed for analysis with real-time engine output |
+
+## Connect Reckless to a GUI
+
+The exact steps vary by GUI, but the general process is the same for all of them.
+
+<Steps>
+  <Step title="Install a UCI-compatible GUI">
+    Download and install one of the GUIs listed above. Follow its installation instructions before proceeding.
+  </Step>
+
+  <Step title="Get the Reckless binary">
+    If you haven't already, download a precompiled binary from the [GitHub Releases page](https://github.com/codedeliveryservice/Reckless/releases) or [build from source](/installation).
+
+    On Linux and macOS, make the binary executable:
+
+    ```bash
+    chmod +x reckless-avx2
+    ```
+  </Step>
+
+  <Step title="Add Reckless as an engine in your GUI">
+    Open your GUI's engine management settings (often found under **Engines** or **Preferences**) and add a new engine. When prompted, point the GUI to the Reckless binary on your filesystem.
+
+    The GUI will automatically run the binary and communicate with it over UCI.
+  </Step>
+
+  <Step title="Start a game or analysis session">
+    Select Reckless as your engine and start a new game or load a position for analysis. The GUI will handle all communication with the engine.
+  </Step>
+</Steps>
+
+## Verify the engine works
+
+If you want to confirm that the binary is working correctly before connecting it to a GUI, you can interact with it directly in your terminal using the UCI protocol.
+
+Run the binary and type `uci`:
+
+```text
+uci
+```
+
+Reckless will respond with its identity and the list of supported options:
+
+```text
+id name Reckless v0.9.0
+id author Arseniy Surkov, Shahin M. Shahin, and Styx
+option name Hash type spin default 16 min 1 max 262144
+option name Threads type spin default 1 min 1 max 512
+option name MoveOverhead type spin default 100 min 0 max 2000
+option name Minimal type check default false
+option name Clear Hash type button
+option name UCI_Chess960 type check default false
+option name MultiPV type spin default 1 min 1 max 218
+option name SyzygyPath type string default
+uciok
+```
+
+If you see `uciok` at the end, the engine is working. Type `quit` to exit.
+
+## Configure the engine
+
+Reckless exposes several UCI options that you can tune from within your GUI, including hash table size, thread count, and Syzygy tablebase path.
+
+<Card title="UCI options" icon="sliders" href="/uci/options">
+  View all available UCI options and what they control.
+</Card>

@@ -1,0 +1,122 @@
+---
+title: "UCI protocol"
+description: "How Reckless communicates with GUIs and tools using the Universal Chess Interface protocol."
+---
+
+The Universal Chess Interface (UCI) is the standard protocol for communication between chess engines and graphical user interfaces (GUIs). Reckless implements UCI as its primary interface, which means you can connect it to any UCI-compatible GUI — such as [Cute Chess](https://github.com/cutechess/cutechess), [En Croissant](https://encroissant.org), or [Nibbler](https://github.com/rooklift/nibbler) — without any special configuration.
+
+Communication happens over standard input and output. The GUI sends plain-text commands to the engine's stdin, and the engine writes responses to stdout. Each message is terminated by a newline.
+
+## Initialization handshake
+
+When you launch Reckless and your GUI sends `uci`, the engine responds with its identity, lists all available options, and signals that it is ready with `uciok`. The GUI then sends `isready` to confirm that the engine is fully initialized, and Reckless responds with `readyok`.
+
+```text
+# GUI → Engine
+uci
+
+# Engine → GUI
+id name Reckless 0.9.0
+id author Arseniy Surkov, Shahin M. Shahin, and Styx
+option name Hash type spin default 16 min 1 max 262144
+option name Threads type spin default 1 min 1 max 512
+option name MoveOverhead type spin default 100 min 0 max 2000
+option name Minimal type check default false
+option name Clear Hash type button
+option name UCI_Chess960 type check default false
+option name MultiPV type spin default 1 min 1 max 218
+uciok
+
+# GUI → Engine
+isready
+
+# Engine → GUI
+readyok
+```
+
+After `readyok` the engine is ready to receive positions and search commands.
+
+## Game loop
+
+A typical game loop follows three steps for every move: set the position, start the search, and receive the best move.
+
+### Setting the position
+
+Use `position` to tell Reckless the current board state before each search. You can specify the starting position directly or provide a FEN string, and optionally append the move history:
+
+```text
+# Starting position with no moves played
+position startpos
+
+# Starting position after 1.e4 e5
+position startpos moves e2e4 e7e5
+
+# Custom position from a FEN string
+position fen r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3
+
+# Custom position with additional moves
+position fen r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3 moves d8f6
+```
+
+### Starting the search
+
+Use `go` to start searching. You can specify time controls, a fixed depth, or search indefinitely:
+
+```text
+# Search with a time control (White has 60 s, Black has 60 s, 1 s increment)
+go wtime 60000 btime 60000 winc 1000 binc 1000
+
+# Search to a fixed depth of 12 plies
+go depth 12
+
+# Search for exactly 5 seconds
+go movetime 5000
+
+# Search indefinitely until you send stop
+go infinite
+```
+
+### Receiving the best move
+
+Once Reckless finishes the search it prints one or more `info` lines followed by `bestmove`:
+
+```text
+info depth 12 seldepth 18 score cp 34 nodes 1482930 nps 2150000 time 689 pv e2e4 e7e5 g1f3 b8c6 f1b5
+bestmove e2e4
+```
+
+The `info` line reports the search depth, selective depth, score in centipawns, node count, nodes per second, time elapsed in milliseconds, and the principal variation (PV). `bestmove` is always the last line for a given search.
+
+## Stopping and quitting
+
+You can interrupt an ongoing search at any time by sending `stop`. Reckless will immediately halt and print `bestmove` with the best move found so far:
+
+```text
+# GUI → Engine (during search)
+stop
+
+# Engine → GUI
+bestmove d2d4
+```
+
+To exit the engine, send `quit`. Reckless will cleanly shut down all search threads and terminate:
+
+```text
+quit
+```
+
+<Note>
+  Reckless processes `isready`, `stop`, and `quit` even while a search is running, in compliance with the UCI specification.
+</Note>
+
+## New game
+
+Send `ucinewgame` between games to reset the engine's internal state — including the transposition table age counters and search history. This gives you a clean slate before each new game:
+
+```text
+ucinewgame
+```
+
+<Tip>
+  Always send `ucinewgame` before the first `position` command of a new game. Most GUIs do this automatically, but if you are driving the engine manually it is good practice.
+</Tip>

@@ -1,0 +1,86 @@
+---
+title: "Syzygy tablebases"
+description: "Enable perfect endgame play for positions with up to 7 pieces using Syzygy tablebases."
+---
+
+Syzygy tablebases contain precomputed perfect play information for every chess position with 7 or fewer pieces on the board (king and pawns included). When Reckless reaches a position covered by the tablebases during search, it can look up the exact win/draw/loss outcome and the distance to mate, eliminating any uncertainty in those endings.
+
+## Build requirement
+
+Syzygy support is provided by the [Fathom](https://github.com/jdart1/Fathom) library and is enabled by the `syzygy` Cargo feature, which is **on by default**. No extra flags are needed for a standard build:
+
+```bash
+cargo rustc --release -- -C target-cpu=native
+```
+
+If you built without Syzygy support (using `--no-default-features`), you must rebuild with the feature enabled before the `SyzygyPath` option will have any effect:
+
+```bash
+cargo rustc --release -- -C target-cpu=native
+```
+
+<Note>
+  Clang must be installed to compile the Fathom library. See [Building from source](/building/from-source) for the full list of build prerequisites.
+</Note>
+
+## Downloading the tablebases
+
+You can download Syzygy tablebase files from the following sources:
+
+- [Syzygy endgame tablebases (official)](https://syzygy-tables.info) — browser-based interface with download links for all piece counts
+- [Lichess Syzygy tablebase files](https://tablebase.lichess.ovh) — mirror with direct HTTP downloads
+
+<Tip>
+  Start with the 3–4–5-piece tables (a few hundred MB) to verify your setup, then add the 6-piece or 7-piece tables if your hardware has the disk space and your use case requires them.
+</Tip>
+
+### Disk space requirements
+
+| Piece count | Approximate size |
+|-------------|-----------------|
+| 3–4 pieces  | ~1 MB            |
+| 5 pieces    | ~1 GB            |
+| 6 pieces    | ~150 GB          |
+| 7 pieces    | ~18 TB           |
+
+<Warning>
+  The 7-piece tablebases require approximately 18 TB of disk space. Most users only need up to 6-piece tables.
+</Warning>
+
+## Configuring the tablebase path
+
+### From the UCI command line
+
+Send the `setoption` command before starting a search:
+
+```bash
+setoption name SyzygyPath value /path/to/tablebases
+```
+
+Replace `/path/to/tablebases` with the directory that contains your `.rtbw` and `.rtbz` files. You can specify multiple directories by separating them with a semicolon on Windows or a colon on Linux and macOS.
+
+### From a UCI GUI
+
+In most GUIs (Cute Chess, En Croissant, Nibbler, Arena, etc.) you can set the `SyzygyPath` option in the engine configuration dialog without typing UCI commands manually:
+
+<Steps>
+  <Step title="Open engine settings">
+    Find the engine configuration panel in your GUI. In Cute Chess this is under **Tools → Settings → Engines**.
+  </Step>
+  <Step title="Locate the SyzygyPath option">
+    Reckless will advertise the `SyzygyPath` option automatically. Select it and enter the full path to your tablebase directory.
+  </Step>
+  <Step title="Save and restart">
+    Save the configuration. The GUI will send the `setoption` command automatically the next time it starts the engine.
+  </Step>
+</Steps>
+
+## Verifying the tablebases loaded
+
+When the engine loads the tablebases successfully, it prints:
+
+```
+info string Loaded Syzygy tablebases with N pieces
+```
+
+where `N` is the maximum piece count found in the tablebase directory. If you do not see this message, check that the path is correct and that the directory contains valid `.rtbw` or `.rtbz` files.

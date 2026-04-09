@@ -1,0 +1,163 @@
+---
+title: "Move ordering"
+description: "How Reckless orders moves to maximize alpha-beta pruning efficiency, including the picker stages, history tables, and SEE."
+keywords: ["move ordering", "history", "SEE", "continuation history", "alpha-beta", "movepicker"]
+---
+
+Alpha-beta search is only as fast as its move ordering is good. The closer the best move is to being searched first, the more cut-offs occur and the smaller the effective search tree becomes. Reckless uses a staged move picker with several layers of history heuristics to approximate this ideal ordering.
+
+## Move picker stages
+
+Moves are generated and returned in six stages. The picker advances through them in order, skipping quiet stages when `skip_quiets` is set:
+
+```
+HashMove → GenerateNoisy → GoodNoisy → GenerateQuiet → Quiet → BadNoisy
+```
+
+| Stage | Description |
+|-------|-------------|
+| `HashMove` | The move stored in the transposition table for this position, tried first if it is legal |
+| `GenerateNoisy` | All noisy moves (captures, en passant, promotions) are generated and scored |
+| `GoodNoisy` | Noisy moves that pass the SEE threshold are returned in order of score |
+| `GenerateQuiet` | All quiet moves are generated and scored |
+| `Quiet` | Quiet moves are returned in order of score |
+| `BadNoisy` | Noisy moves that failed SEE are returned in their original order |
+
+The picker uses a selection-sort approach: `get_best_entry()` scans the remaining list for the highest-scored move rather than sorting the entire list upfront.
+
+<Note>
+Bad noisy moves are deferred but not discarded. They appear after all quiet moves because they may still be the only legal continuation in some positions.
+</Note>
+
+## Hash move
+
+The TT move is tried before any move generation. No scoring is needed — it is returned immediately if it is a legal move for the current position.
+
+## Noisy move scoring
+
+When not in check, captures are scored by combining the captured piece's material value with noisy history:
+
+```rust
+entry.score = 16 * captured.value() + noisy_history.get(threats, moved_piece, to_sq, captured)
+```
+
+The `16 * captured.value()` term means that capturing a queen (value 5) scores +80 base, capturing a pawn (value 1) scores +16 base. Noisy history (described below) is added on top.
+
+When **in check**, all noisy moves are scored by piece type to prefer moving lower-value pieces first:
+
+```rust
+entry.score = 10000 - 1000 * piece_type as i32
+```
+
+After scoring, each noisy move is tested against a SEE threshold. Moves that fail are placed in the `bad_noisy` buffer; those that pass are returned as `GoodNoisy`.
+
+The SEE threshold in the picker is:
+
+```rust
+threshold = self.threshold.unwrap_or_else(|| -entry.score / 45 + 111)
+```
+
+The default threshold adapts to the move's own score, so highly-scored captures are held to a looser standard than marginal ones.
+
+## Quiet move scoring
+
+Quiet moves receive a composite score from several history sources, plus a set of positional bonus/penalty terms:
+
+```rust
+entry.score =
+    2048 * quiet_history        / 1024    // quiet history (factored by 2.0)
+  + 1536 * continuation_hist_1  / 1024    // 1-ply continuation history (×1.5)
+  +        continuation_hist_2            // 2-ply continuation history
+  +        continuation_hist_4            // 4-ply continuation history
+  +        continuation_hist_6            // 6-ply continuation history
+  + escape_bonus                          // bonus for escaping a threatened square
+  + 9325 * gives_check                    // large bonus for checking moves
+  - 7584 * moves_to_threatened_sq         // penalty for moving to a threatened square
+  + 6158 * attacks_opponent_piece         // bonus for moves that attack an undefended piece
+  + 5000 * rook_attacks_king_ring         // bonus for rooks attacking the opponent king ring
+  - 4000 * is_king_wall_pawn              // penalty for moving a king-shelter pawn
+```
+
+The `escape_bonus` varies by piece type and is only applied when the piece is currently on a threatened square:
+
+| Piece | Escape bonus |
+|-------|-------------|
+| Pawn | 7768 |
+| Knight | 8218 |
+| Bishop | 13424 |
+| Rook | 20208 |
+
+## History tables
+
+### Quiet history (`QuietHistory`)
+
+Indexed by `[side_to_move][from_square][to_square]`. Each entry has two components:
+
+- **Factorizer** — a shared term updated on every bonus/malus (max ±1852).
+- **Bucket** — a term further indexed by whether the from-square and to-square are threatened by the opponent (four possible buckets, max ±6324).
+
+The total quiet history score is `factorizer + bucket`.
+
+### Noisy history (`NoisyHistory`)
+
+Indexed by `[moved_piece][to_square]`. Each entry has:
+
+- **Factorizer** — shared term (max ±4524).
+- **Bucket** — indexed by captured piece type and whether the destination square is threatened (max ±7826).
+
+### Continuation history (`ContinuationHistory`)
+
+Indexed by `[in_check][is_capture][piece][to_square][piece][to_square]`. The outer indices identify the position *n* plies ago; the inner indices identify the current move.
+
+Continuation histories are looked up at offsets of 1, 2, 4, and 6 plies back from the current position. They capture the conditional likelihood of a move being good given what happened recently in the search.
+
+The continuation history subtable pointer is stored on the search stack so that child nodes can update it without re-indexing the full table.
+
+### Correction histories
+
+Correction histories are not used for move ordering but influence the [evaluated score](/internals/nnue#evaluation-correction) at each node. See the NNUE page for details.
+
+## History updates
+
+After a beta cut-off, the engine updates history scores for the move that caused the cut-off (positive bonus) and all moves tried before it (negative malus). Bonuses and maliuses scale with depth:
+
+```rust
+// Quiet best move
+quiet_bonus = (172 * depth).min(1508) - 76 - 55 * cut_node as i32
+
+// Quiet moves that failed to cut
+quiet_malus = (156 * depth).min(1065) - 45 - 36 * quiet_moves.len() as i32
+```
+
+Noisy moves receive analogous bonuses and maliuses via `NoisyHistory`.
+
+Continuation histories are updated for the best move at offsets 1, 2, 4, and 6 plies. An additional continuation history update is applied for the previous ply's move when the current node is an all-node (upper bound), to discourage repeating moves that led to failure.
+
+### Eval-based quiet history update
+
+When the previous move was quiet, the difference between the current eval and the previous eval is used as an additional signal:
+
+```rust
+let value = 824 * (-(eval + prev_eval)) / 128;
+let bonus  = value.clamp(-133, 348);
+quiet_history.update(prior_threats, !stm, prev_move, bonus);
+```
+
+This nudges the history of the previous move based on whether the position improved or worsened since it was played.
+
+## SEE (Static Exchange Evaluation)
+
+SEE estimates the material outcome of a capture sequence on a given square without actually searching the moves. It is used in two places:
+
+1. **Move picker** — to separate `GoodNoisy` from `BadNoisy`.
+2. **SEE Pruning in search** — to skip moves below a depth-dependent threshold before making them.
+
+SEE works by repeatedly simulating the least-valuable attacker capturing on the target square, alternating sides, until no attackers remain or the exchange becomes losing.
+
+## ProbCut move picker
+
+The ProbCut sub-search uses a dedicated `MovePicker::new_probcut(threshold)` that starts directly at `GenerateNoisy` (no hash move) and applies a fixed SEE threshold rather than the adaptive default. It also stops at `BadNoisy` — bad captures are never tried during ProbCut.
+
+## Quiescence search move picker
+
+`MovePicker::new_qsearch()` also starts at `GenerateNoisy` with no hash move. Quiet moves are only included when the position is in check or when the TT move is quiet and not an upper-bound entry.

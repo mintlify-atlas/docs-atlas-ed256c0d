@@ -1,0 +1,124 @@
+---
+title: "Time management"
+description: "How Reckless decides when to stop searching: time control modes, soft and hard limits, move overhead, and multi-threaded soft stop voting."
+keywords: ["time management", "time control", "Fischer", "soft limit", "hard limit", "move overhead"]
+---
+
+Reckless must balance search depth against remaining time. It does this through a `TimeManager` that computes soft and hard time bounds from the active time control, then adjusts the soft bound dynamically after each completed depth.
+
+## Time control modes
+
+The engine supports six time limit modes:
+
+| Mode | UCI trigger | Description |
+|------|-------------|-------------|
+| `Infinite` | `go infinite` | No time limit; search until `stop` is received |
+| `Depth(n)` | `go depth n` | Search to exactly depth *n* and stop |
+| `Nodes(n)` | `go nodes n` | Stop after *n* nodes have been searched |
+| `Time(ms)` | `go movetime ms` | Spend exactly *ms* milliseconds on the move |
+| `Fischer(main, inc)` | `go wtime … btime … winc … binc …` | Standard time-plus-increment control |
+| `Cyclic(main, inc, moves)` | `go wtime … movestogo …` | Moves-to-go time control |
+
+For `Infinite` and `Depth`, neither a soft nor a hard bound is set — the search runs until it is explicitly stopped or the target depth is reached.
+
+## Fischer time calculation
+
+Fischer is the most common tournament time format. The available time is split into a soft bound (target) and a hard bound (maximum), both computed at the start of the search:
+
+```
+soft_scale = 0.066 - 0.042 * exp(-0.045 * fullmove_number)
+hard_scale = 0.742
+
+soft_bound = soft_scale * (main - move_overhead) + 0.75 * inc
+hard_bound = hard_scale * (main - move_overhead) + 0.75 * inc
+```
+
+Both bounds are capped at `main - move_overhead` so the engine cannot schedule more time than it has.
+
+The `soft_scale` grows from roughly 2.4% on move 1 toward 6.6% on move 40+, so the engine naturally spends more time per move as the game progresses and the tree becomes more complex.
+
+<Note>
+A fixed overhead of **15 ms** (`TIME_OVERHEAD_MS`) is subtracted from both bounds to absorb network latency, process scheduling jitter, and GUI communication delays. Additional overhead can be configured via the `MoveOverhead` UCI option.
+</Note>
+
+## Cyclic time calculation
+
+For moves-to-go time controls, the available time is divided evenly across remaining moves plus an increment:
+
+```
+base = (main - move_overhead) / moves + 0.75 * inc
+
+soft_bound = 1.0 * base
+hard_bound = 5.0 * base
+```
+
+Both bounds are capped at `main + inc`.
+
+## Soft vs. hard limits
+
+The engine checks two distinct limits during search:
+
+**Hard limit** — checked every 2048 nodes by thread 0. If the elapsed time exceeds the hard bound, the engine sets `Status::STOPPED` immediately, regardless of depth:
+
+```rust
+td.nodes() & 2047 == 2047 && self.start_time.elapsed() >= self.hard_bound
+```
+
+**Soft limit** — checked after each completed depth. If the elapsed time exceeds `soft_bound * multiplier`, the thread votes to stop (see below). The multiplier adjusts the effective soft bound based on search stability.
+
+For `Time(ms)` mode, the soft limit is simply a wall-clock check against the fixed duration. For node-based limits, the soft limit fires when the node count reaches the target.
+
+## Soft limit multiplier
+
+After each depth, a multiplier is computed from five stability factors and applied to the soft bound:
+
+```rust
+let multiplier = nodes_factor * pv_stability * eval_stability * score_trend * best_move_stability;
+```
+
+| Factor | Formula | Effect |
+|--------|---------|--------|
+| `nodes_factor` | `(2.717 - 2.267 * best_move_nodes / total_nodes).max(0.563)` | Spend more time when the best move consumed few nodes (unstable) |
+| `pv_stability` | `(1.25 - 0.05 * pv_stable_depths).max(0.85)` | Spend less time when the PV has been stable across depths |
+| `eval_stability` | `(1.20 - 0.04 * eval_stable_depths).max(0.88)` | Spend less time when the score has been stable |
+| `score_trend` | `(0.80 + 0.05 * (prev_score - current_score)).clamp(0.80, 1.45)` | Spend more time when the score is falling |
+| `best_move_stability` | `1.0 + best_move_changes / 4.0` | Spend more time when the best move keeps changing |
+
+A multiplier above 1.0 extends the search past the nominal soft bound; a multiplier below 1.0 ends it early.
+
+## Move overhead
+
+The `MoveOverhead` UCI option (default **100 ms**) is subtracted from `main` before any calculation. This compensates for communication latency between the engine and the GUI:
+
+```rust
+let available = main.saturating_sub(move_overhead);
+```
+
+Increase `MoveOverhead` if Reckless loses on time in practice; decrease it if you are running the engine locally with negligible latency and want to recover the safety margin.
+
+## Soft stop voting
+
+In multi-threaded search, each thread independently evaluates the soft limit after finishing a depth. Rather than stopping on the first thread's vote, Reckless requires a **65% majority**:
+
+```rust
+let majority = (thread_count * 65).div_ceil(100);
+if votes >= majority { td.shared.status.set(Status::STOPPED); }
+```
+
+Threads cast their vote atomically:
+
+```rust
+let votes = td.shared.soft_stop_votes.fetch_add(1, Ordering::AcqRel) + 1;
+```
+
+If a thread completes a subsequent depth before the majority is reached (because the search at that depth was very fast), it retracts its vote:
+
+```rust
+td.shared.soft_stop_votes.fetch_sub(1, Ordering::AcqRel);
+```
+
+This prevents a single fast thread from prematurely stopping a search that other threads are still productively exploring.
+
+<Tip>
+With a single thread, the 65% majority is reached as soon as that thread votes, so soft stop behavior is identical to the single-threaded case.
+</Tip>

@@ -1,0 +1,159 @@
+---
+title: "NNUE evaluation"
+description: "How Reckless evaluates chess positions using an efficiently updatable neural network (NNUE) with SIMD acceleration."
+keywords: ["NNUE", "neural network", "evaluation", "SIMD", "AVX-512", "AVX2", "accumulators"]
+---
+
+Reckless evaluates positions using an **Efficiently Updatable Neural Network** (NNUE). Instead of re-running the full network for every position, NNUE maintains incremental accumulators that are cheaply updated when a move is made or undone. A full forward pass only happens when the position is actually evaluated.
+
+## Network architecture
+
+The network has three linear layers plus an input feature transformation stage:
+
+| Layer | Neurons | Notes |
+|-------|---------|-------|
+| Feature transformer (FT) | 768 | Maintains two accumulators: PST and Threat |
+| L1 | 16 | Indexed by output bucket |
+| L2 | 32 | Indexed by output bucket |
+| L3 (output) | 1 | Scalar output; scaled by `NETWORK_SCALE = 380` |
+
+The final score returned to the search is:
+
+```rust
+(l3_out * NETWORK_SCALE as f32) as i32
+```
+
+### Quantization
+
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| `FT_QUANT` | 255 | Feature transformer activation scale |
+| `L1_QUANT` | 64 | L1 weight scale |
+| `FT_SHIFT` | 9 | Bit-shift used during dequantization |
+
+The dequantization multiplier applied after L1 is:
+
+```rust
+DEQUANT_MULTIPLIER = (1 << FT_SHIFT) as f32 / (FT_QUANT * FT_QUANT * L1_QUANT) as f32
+```
+
+## Input buckets (king position)
+
+The feature transformer uses **10 input buckets** indexed by the position of the side-to-move's king. The bucket layout is mirrored horizontally, so a king on e1 and a king on d1 share the same bucket:
+
+```
+0 1 2 3 | 3 2 1 0    ← ranks 1–2
+4 5 6 7 | 7 6 5 4
+8 8 8 8 | 8 8 8 8    ← rank 3
+9 9 9 9 | 9 9 9 9    ← ranks 4–8
+```
+
+When the king crosses the boundary between buckets (or moves to a different half of the board), a full accumulator refresh is required. For all other king moves, incremental updates are used.
+
+## Output buckets (piece count)
+
+The network has **8 output buckets** indexed by the total number of pieces on the board. As pieces are exchanged, a different set of L1/L2/L3 weights is selected:
+
+```
+0–8 pieces  → bucket 0
+9–12        → bucket 1
+13–16       → bucket 2
+17–19       → bucket 3
+20–22       → bucket 4
+23–25       → bucket 5
+26–28       → bucket 6
+29–32       → bucket 7
+```
+
+This lets the network specialize its weights for different game phases without requiring separate networks.
+
+## Dual accumulators
+
+Reckless maintains two separate accumulator stacks per position:
+
+### PST accumulator (`PstAccumulator`)
+
+Encodes the **piece-square** features of all pieces for both sides. It is indexed by `INPUT_BUCKETS × 768` weight entries (12 piece types × 64 squares × 10 king buckets). Each king-move that changes the bucket triggers a `full_refresh` from an `AccumulatorCache`.
+
+### Threat accumulator (`ThreatAccumulator`)
+
+Encodes which squares are **threatened** by each side. Threat features are represented by 66,864 weight entries (`ft_threat_weights`). The threat accumulator is updated incrementally via `BoardObserver` callbacks:
+
+- `on_piece_move` — a piece moved from one square to another.
+- `on_piece_mutate` — a piece changed type (promotion).
+- `on_piece_change` — a piece was added or removed (captures, en passant).
+
+When a king moves across the horizontal midline, the threat accumulator also requires a full refresh.
+
+Both accumulators are lazily evaluated: they are marked `accurate = false` when a move is pushed and are only brought up to date when `evaluate()` is called.
+
+## Lazy evaluation and incremental updates
+
+The `Network` struct maintains a stack of `PstAccumulator` and `ThreatAccumulator` entries indexed by search ply. When a move is made:
+
+1. `push()` copies the delta (moved piece, captured piece, move) onto the stack and marks the new accumulators as inaccurate.
+2. When `evaluate()` is called, the engine walks back through the stack to find the most recent accurate accumulator and replays all deltas forward from that point.
+3. If no accurate ancestor exists (a king bucket change occurred), `refresh()` recomputes the accumulator from scratch using a cached copy from `AccumulatorCache`.
+4. `pop()` simply decrements the stack index — no undo work is needed.
+
+This design avoids redundant re-computation when the search backtracks.
+
+## Sparse activation (NNZ table)
+
+Before propagating through L1, the engine finds the **non-zero** entries in the activated feature transformer output using a precomputed lookup table (`nnz_table`). The table maps each byte value (0–255) to the positions of set bits, allowing the L1 matrix-vector product to skip zero entries entirely.
+
+```rust
+let (nnz_indexes, nnz_count) = forward::find_nnz(&ft_out, &self.nnz_table);
+let l1_out = forward::propagate_l1(ft_out, &nnz_indexes[..nnz_count], bucket);
+```
+
+## SIMD acceleration
+
+The forward pass is compiled with the best available SIMD backend:
+
+| Backend | Condition |
+|---------|-----------|
+| AVX-512 | `target_feature = "avx512f"` |
+| AVX2 | `target_feature = "avx2"` (and not AVX-512) |
+| NEON | `target_feature = "neon"` (ARM) |
+| Scalar | Fallback for all other targets |
+
+The vectorized path (`forward/vectorized`) is selected when AVX2 or NEON is available. The SIMD path (`simd/avx512`, `simd/avx2`, `simd/neon`, `simd/scalar`) handles the accumulator arithmetic separately.
+
+<Tip>
+Use a native-compiled build (`-C target-cpu=native`) to enable AVX-512 or AVX2 automatically. Pre-built binaries are distributed with the appropriate SIMD level selected at compile time.
+</Tip>
+
+## Evaluation correction
+
+After the NNUE score is produced, `correct_eval()` in `evaluation.rs` applies three adjustments:
+
+```rust
+pub fn correct_eval(td: &ThreadData, raw_eval: i32, correction_value: i32) -> i32 {
+    // 1. Material-weighted blend with optimism
+    let mut eval = (raw_eval * (20664 + td.board.material())
+        + td.optimism[stm] * (1487 + td.board.material()))
+        / 26685;
+
+    // 2. 50-move rule draw contempt
+    eval = eval * (200 - halfmove_clock) / 200;
+
+    // 3. Correction history
+    eval += correction_value;
+
+    eval.clamp(-TB_WIN_IN_MAX + 1, TB_WIN_IN_MAX - 1)
+}
+```
+
+The `correction_value` passed to `correct_eval` is computed in `eval_correction()` and is the sum of six history terms:
+
+| History | Keyed by |
+|---------|----------|
+| Pawn correction history | Pawn hash key |
+| Minor piece correction history | Minor piece hash key |
+| Non-pawn correction (White) | Non-pawn hash key for White |
+| Non-pawn correction (Black) | Non-pawn hash key for Black |
+| Continuation correction history (2-ply) | Previous piece and destination square |
+| Continuation correction history (4-ply) | Piece and square from 4 plies back |
+
+Correction histories are updated after each node when the search result differs from the static evaluation, allowing the engine to learn systematic biases in its evaluation for specific pawn structures and piece configurations.

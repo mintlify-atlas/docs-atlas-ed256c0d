@@ -1,0 +1,451 @@
+---
+title: "Commands"
+description: "Complete reference for all UCI commands and Reckless-specific extensions."
+---
+
+Reckless accepts commands on standard input, one per line. Standard UCI commands follow the [UCI specification](https://backscattering.de/chess/uci/) and are understood by any compliant GUI. Custom commands are Reckless-specific extensions for development, debugging, and testing.
+
+---
+
+## Standard UCI commands
+
+### `uci`
+
+Switches the engine to UCI mode and prints its identity and all available options.
+
+**Syntax:**
+
+```text
+uci
+```
+
+**Output:**
+
+```text
+id name Reckless 0.9.0
+id author Arseniy Surkov, Shahin M. Shahin, and Styx
+option name Hash type spin default 16 min 1 max 262144
+option name Threads type spin default 1 min 1 max 512
+option name MoveOverhead type spin default 100 min 0 max 2000
+option name Minimal type check default false
+option name Clear Hash type button
+option name UCI_Chess960 type check default false
+option name MultiPV type spin default 1 min 1 max 218
+uciok
+```
+
+---
+
+### `isready`
+
+Asks the engine whether it is ready to receive commands. Reckless responds immediately with `readyok`. You can send `isready` at any time — including while a search is running.
+
+**Syntax:**
+
+```text
+isready
+```
+
+**Output:**
+
+```text
+readyok
+```
+
+---
+
+### `setoption`
+
+Sets a UCI option. See [UCI options](/uci/options) for the full list of available options and their descriptions.
+
+**Syntax:**
+
+```text
+setoption name <name> value <value>
+```
+
+For button-type options:
+
+```text
+setoption name <name>
+```
+
+**Examples:**
+
+```text
+setoption name Hash value 256
+setoption name Threads value 4
+setoption name UCI_Chess960 value true
+setoption name Clear Hash
+```
+
+---
+
+### `ucinewgame`
+
+Signals the start of a new game. Reckless clears the transposition table, resets search history tables, and prepares for a fresh game.
+
+**Syntax:**
+
+```text
+ucinewgame
+```
+
+<Tip>
+  Send `ucinewgame` before the first `position` command of every new game. Most GUIs do this automatically.
+</Tip>
+
+---
+
+### `position`
+
+Sets the current board position. You must call this before every `go` command so the engine knows what position to search.
+
+**Syntax:**
+
+```text
+position startpos [moves <move1> <move2> ...]
+position fen <fen> [moves <move1> <move2> ...]
+```
+
+Moves are specified in coordinate notation (e.g., `e2e4`, `g1f3`). In Chess960 mode, castling moves use the king-to-rook form (e.g., `e1a1`). Promotions include the piece letter suffix (e.g., `e7e8q`).
+
+**Examples:**
+
+```text
+# Starting position, no moves
+position startpos
+
+# Starting position after 1.e4 e5 2.Nf3
+position startpos moves e2e4 e7e5 g1f3
+
+# Position from a FEN string
+position fen r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3
+
+# Position from FEN with subsequent moves
+position fen rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 moves d2d4 d7d5
+```
+
+---
+
+### `go`
+
+Starts the search on the current position. You can specify one of several limit modes. If no recognized limits are provided, the engine searches infinitely.
+
+**Syntax:**
+
+```text
+go [depth <n>] [movetime <ms>] [nodes <n>]
+   [wtime <ms>] [btime <ms>] [winc <ms>] [binc <ms>] [movestogo <n>]
+   [infinite]
+```
+
+<AccordionGroup>
+  <Accordion title="Fixed depth">
+    Search exactly `n` plies deep, regardless of time.
+
+    ```text
+    go depth 12
+    ```
+
+    ```text
+    info depth 12 seldepth 19 score cp 28 nodes 1042311 nps 1938000 time 538 pv e2e4 e7e5 g1f3
+    bestmove e2e4
+    ```
+  </Accordion>
+
+  <Accordion title="Fixed time">
+    Search for exactly `n` milliseconds.
+
+    ```text
+    go movetime 5000
+    ```
+
+    ```text
+    info depth 18 seldepth 26 score cp 31 nodes 9847210 nps 1969442 time 4999 pv d2d4 d7d5 c2c4
+    bestmove d2d4
+    ```
+  </Accordion>
+
+  <Accordion title="Fixed node count">
+    Search exactly `n` nodes.
+
+    ```text
+    go nodes 1000000
+    ```
+
+    ```text
+    info depth 15 seldepth 22 score cp 29 nodes 1000214 nps 2100000 time 476 pv e2e4
+    bestmove e2e4
+    ```
+  </Accordion>
+
+  <Accordion title="Fischer time control">
+    Play with a main clock and per-move increment. Provide `wtime` and `btime` (remaining time in milliseconds for each side) and optionally `winc`/`binc` (increment per move in milliseconds). Reckless uses its internal time manager to allocate time for the current move.
+
+    ```text
+    go wtime 120000 btime 120000 winc 1000 binc 1000
+    ```
+
+    ```text
+    info depth 20 seldepth 29 score cp 24 nodes 4218440 nps 2109220 time 1999 pv e2e4 c7c5
+    bestmove e2e4
+    ```
+  </Accordion>
+
+  <Accordion title="Cyclic time control (moves to go)">
+    Play with a fixed time per time control period. Add `movestogo` to tell the engine how many moves remain in the current period.
+
+    ```text
+    go wtime 60000 btime 60000 movestogo 20
+    ```
+
+    ```text
+    info depth 16 seldepth 24 score cp 18 nodes 2031900 nps 2031900 time 1001 pv d2d4 g8f6
+    bestmove d2d4
+    ```
+  </Accordion>
+
+  <Accordion title="Infinite search">
+    Search indefinitely until you send `stop`.
+
+    ```text
+    go infinite
+    ```
+
+    ```text
+    info depth 1 seldepth 1 score cp 22 nodes 20 nps 20000 time 1 pv e2e4
+    info depth 2 seldepth 2 score cp 15 nodes 60 nps 30000 time 2 pv e2e4 e7e5
+    info depth 3 seldepth 4 score cp 28 nodes 240 nps 80000 time 3 pv e2e4 e7e5 g1f3
+    ...
+    ```
+
+    Send `stop` to halt the search and receive `bestmove`.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+### `stop`
+
+Immediately halts the current search. Reckless prints the best move found so far and returns to idle.
+
+**Syntax:**
+
+```text
+stop
+```
+
+**Output:**
+
+```text
+bestmove e2e4
+```
+
+<Note>
+  `stop` is processed by the engine's input listener even while the search thread is running, so it takes effect as quickly as the search can check its stopping condition.
+</Note>
+
+---
+
+### `quit`
+
+Shuts down the engine. Reckless terminates all search threads and exits cleanly.
+
+**Syntax:**
+
+```text
+quit
+```
+
+---
+
+## Custom commands
+
+These commands are Reckless-specific extensions. They are not part of the UCI specification and may not be recognized by all GUIs. They are primarily intended for development, testing, and debugging.
+
+---
+
+### `d` <Badge color="blue">extension</Badge>
+
+Prints the current board position in a human-readable diagram along with the FEN string.
+
+**Syntax:**
+
+```text
+d
+```
+
+**Example output:**
+
+```text
+ +---+---+---+---+---+---+---+---+
+ | r | n | b | q | k | b | n | r |  8
+ +---+---+---+---+---+---+---+---+
+ | p | p | p | p | p | p | p | p |  7
+ +---+---+---+---+---+---+---+---+
+ |   |   |   |   |   |   |   |   |  6
+ +---+---+---+---+---+---+---+---+
+ |   |   |   |   |   |   |   |   |  5
+ +---+---+---+---+---+---+---+---+
+ |   |   |   |   |   |   |   |   |  4
+ +---+---+---+---+---+---+---+---+
+ |   |   |   |   |   |   |   |   |  3
+ +---+---+---+---+---+---+---+---+
+ | P | P | P | P | P | P | P | P |  2
+ +---+---+---+---+---+---+---+---+
+ | R | N | B | Q | K | B | N | R |  1
+ +---+---+---+---+---+---+---+---+
+   a   b   c   d   e   f   g   h
+
+FEN: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+```
+
+---
+
+### `eval` <Badge color="blue">extension</Badge>
+
+Prints the NNUE evaluation of the current position in centipawns from White's perspective. A positive value favors White; a negative value favors Black.
+
+**Syntax:**
+
+```text
+eval
+```
+
+**Example output:**
+
+```text
+22
+```
+
+<Note>
+  The evaluation is always reported from White's perspective regardless of which side is to move.
+</Note>
+
+---
+
+### `compiler` <Badge color="blue">extension</Badge>
+
+Prints information about the compiler used to build the engine binary, including the compiler version, target triple, and enabled feature flags.
+
+**Syntax:**
+
+```text
+compiler
+```
+
+**Example output:**
+
+```text
+Compiler Version: rustc 1.88.0
+Compiler Target: x86_64-unknown-linux-gnu
+Compiler Features: avx2,bmi2,popcnt
+```
+
+---
+
+### `bench [args]` <Badge color="blue">extension</Badge>
+
+Runs a benchmark on a fixed set of 46 positions at a fixed depth and reports total node count and speed. This is used for regression testing and PGO profiling.
+
+**Syntax:**
+
+```text
+bench [hash] [threads] [depth]
+```
+
+Optional arguments in order: hash table size in MB (default 16), thread count (default 1), search depth in plies (default 12).
+
+**Example — CLI mode:**
+
+```bash
+reckless bench
+```
+
+**Output (CLI mode):**
+
+```text
+Bench: 123456789 nodes 2345678 nps
+```
+
+**Example — UCI session mode:**
+
+```text
+bench
+```
+
+**Output (UCI session mode, truncated):**
+
+```text
+--------------------------------------------------
+          Nodes       Elapsed             NPS
+--------------------------------------------------
+  0     2847361        1.243s       2290248 N/s
+  1     1923847        0.891s       2159201 N/s
+  ...
+--------------------------------------------------
+  123456789       52.381s       2357123 N/s
+--------------------------------------------------
+```
+
+---
+
+### `perft <depth>` <Badge color="blue">extension</Badge>
+
+Runs a [perft](https://www.chessprogramming.org/Perft) test on the current position, counting the number of legal leaf nodes at `depth` plies. Results are broken down by root move with per-move timing. Use this to verify move generation correctness.
+
+**Syntax:**
+
+```text
+perft <depth>
+```
+
+**Example:**
+
+```text
+position startpos
+perft 4
+```
+
+**Example output:**
+
+```text
+------------------------------------------------------------
+        Move        Nodes       Elapsed             NPS
+------------------------------------------------------------
+  1       e2e4       8902        0.001s       8902000.0 kN/s
+  2       d2d4       8902        0.001s       8902000.0 kN/s
+  ...
+------------------------------------------------------------
+       Total       197281        0.012s      16440083.3 kN/s
+------------------------------------------------------------
+```
+
+---
+
+### `simpleperft <depth>` <Badge color="blue">extension</Badge>
+
+Runs a perft test reporting each root move and its subtree node count, followed by the total. No timing information is included — useful for diffing against reference output.
+
+**Syntax:**
+
+```text
+simpleperft <depth>
+```
+
+**Example:**
+
+```text
+position startpos
+simpleperft 5
+```
+
+**Example output:**
+
+```text
+e2e4: 242038
+d2d4: 224737
+...
+total: 4865609
+```

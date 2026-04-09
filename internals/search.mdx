@@ -1,0 +1,295 @@
+---
+title: "Search algorithm"
+description: "How Reckless searches for the best move: iterative deepening, aspiration windows, PVS, pruning, extensions, LMR, and quiescence search."
+keywords: ["search", "alpha-beta", "PVS", "iterative deepening", "pruning", "LMR", "quiescence"]
+---
+
+Reckless uses a Principal Variation Search (PVS) inside an iterative deepening framework, augmented with a large collection of pruning heuristics, search extensions, and late move reductions. This page describes each component in the order they appear during a search.
+
+## Iterative deepening
+
+The engine searches from depth 1 up to `MAX_PLY`, completing each depth before moving to the next. This allows the engine to use the result of shallower searches to guide deeper ones — best moves found at depth *d* are tried first at depth *d + 1*, improving the move ordering and enabling earlier cut-offs.
+
+```rust
+for depth in 1..MAX_PLY as i32 {
+    // search at this depth, then continue
+}
+```
+
+If a `Depth` limit is set, the loop stops once the requested depth is reached.
+
+## Aspiration windows
+
+Rather than searching with a full `[-∞, +∞]` window at each depth, Reckless opens a narrow window around the score from the previous iteration. This triggers more beta cut-offs and speeds up the search considerably.
+
+The initial delta is **15 centipawns** (plus a small term proportional to the square of the running average). When the score falls outside the window, the bound is widened and the position is re-searched:
+
+| Result | Action |
+|--------|--------|
+| Fail-low (`score ≤ alpha`) | `alpha = score − delta`; `delta += 28 * delta / 128` |
+| Fail-high (`score ≥ beta`) | `beta = score + delta`; `delta += 62 * delta / 128`; reduce root depth by 1 |
+| Inside window | Accept score, break |
+
+The fail-high expansion is larger than the fail-low expansion because fail-high results at the root are rarer and typically require more re-searching.
+
+## Node types
+
+Reckless distinguishes three node types via Rust traits, resolved at compile time:
+
+| Type | Description |
+|------|-------------|
+| `Root` | The root of the search tree (`PV = true`, `ROOT = true`) |
+| `PV` | A node on the principal variation (`PV = true`) |
+| `NonPV` | All other nodes; uses a null window (`alpha = beta − 1`) |
+
+## Principal Variation Search (PVS)
+
+PVS is built on top of alpha-beta. The first move at a PV node is searched with the full window `[-beta, -alpha]`. All subsequent moves are first searched with a null window `[-alpha-1, -alpha]` (a scout search). If the scout search raises alpha, the move is re-searched with the full window to obtain the exact score.
+
+```rust
+// First move, or PV node after scout fails low
+score = -search::<PV>(td, -beta, -alpha, new_depth, false, ply + 1);
+
+// Subsequent moves: scout first
+score = -search::<NonPV>(td, -alpha - 1, -alpha, reduced_depth, true, ply + 1);
+if score > alpha {
+    score = -search::<PV>(td, -beta, -alpha, new_depth, false, ply + 1);
+}
+```
+
+## Transposition table
+
+Before doing any work at a node, Reckless probes the transposition table (TT). The TT uses a cluster-based layout with **3 entries per 32-byte cluster** and stores: move, score, raw eval, depth, score bound, and a `tt_pv` flag.
+
+A TT hit can cause an early return at non-PV nodes when the stored depth is sufficient and the bound aligns with the current window:
+
+- **Exact** bound → return immediately.
+- **Lower** bound with `score ≥ beta` → beta cut-off.
+- **Upper** bound with `score ≤ alpha` → alpha cut-off.
+
+Scores near mate are adjusted by `ply` when written and read back, so that the stored value reflects mate distance from the stored position rather than from the root.
+
+The engine also **prefetches** the TT cluster for the next position immediately after making a move, hiding memory latency behind move execution.
+
+<Tip>
+The TT replacement strategy scores each entry as `depth - 4 * relative_age`. The youngest, deepest entry wins.
+</Tip>
+
+## Evaluation
+
+When a TT hit is not available, the position is evaluated by the NNUE network (see [NNUE evaluation](/internals/nnue)). The raw NNUE score is corrected by `correct_eval()`, which applies:
+
+1. A material-weighted blend of the raw eval and an optimism term.
+2. A 50-move rule scale: `eval * (200 - halfmove_clock) / 200`.
+3. A correction history term derived from pawn, minor, and non-pawn structure histories.
+
+If a TT entry exists with a bound that tightens the current window, its score is used as `estimated_score` in place of the eval for the pruning decisions below.
+
+## Pruning
+
+Reckless applies a series of pruning techniques before and during move generation. All pruning is disabled at PV nodes except where noted.
+
+<AccordionGroup>
+  <Accordion title="Mate Distance Pruning (MDP)">
+    Tightens alpha and beta so they cannot exceed the best possible forced mate from the current ply. If the window collapses, the position cannot improve on what we already have.
+
+    ```rust
+    alpha = alpha.max(mated_in(ply));
+    beta  = beta.min(mate_in(ply + 1));
+    if alpha >= beta { return alpha; }
+    ```
+  </Accordion>
+
+  <Accordion title="Reverse Futility Pruning (RFP)">
+    If the static eval is sufficiently above beta, the position is unlikely to fall below beta even with the opponent's best play, so we return a blended value without searching.
+
+    The margin scales quadratically with depth and is reduced when the position is improving:
+
+    ```
+    threshold = 1165 * depth² / 128 + 25 * depth
+                - 80 * improving
+                + 560 * |correction| / 1024
+                - 59 * (stm has no threatened pieces)
+                + 30
+    ```
+
+    Applied only when `estimated_score ≥ beta + threshold` and neither `beta` is a losing score nor `estimated_score` is a winning score.
+  </Accordion>
+
+  <Accordion title="Null Move Pruning (NMP)">
+    On cut nodes where `estimated_score ≥ beta` and the side to move has non-pawn material, we pass the move to the opponent and search at a reduced depth. If the resulting score still exceeds beta, the position is likely a fail-high regardless of what move is played.
+
+    The reduction `r` adapts to depth and how far the eval exceeds beta:
+
+    ```rust
+    let r = (5335 + 260 * depth + 493 * (estimated_score - beta).clamp(0, 1003) / 128) / 1024;
+    ```
+
+    At high depths (`depth ≥ 16`), NMP is followed by a verification search to avoid zugzwang errors.
+  </Accordion>
+
+  <Accordion title="Razoring">
+    When the static eval is far below alpha and there is no quiet TT move, Reckless dives directly into quiescence search rather than a full search. This avoids spending time on nodes that captures alone are unlikely to save.
+
+    ```
+    condition: estimated_score < alpha - 295 - 261 * depth²
+    ```
+  </Accordion>
+
+  <Accordion title="ProbCut">
+    On cut nodes with a sufficiently high beta, Reckless tries noisy moves with a reduced depth. If a noisy move passes a quick qsearch and then a reduced-depth search at a raised beta (`probcut_beta = beta + 270 - 75 * improving`), it is treated as a cut and returned early.
+  </Accordion>
+
+  <Accordion title="Late Move Pruning (LMP)">
+    After a sufficient number of quiet moves have been searched without raising alpha, the remaining quiet moves are skipped entirely. The threshold scales with depth, improvement, and history:
+
+    ```
+    threshold = (3006 + 70 * improvement / 16 + 1455 * depth² + 68 * history / 1024) / 1024
+    ```
+  </Accordion>
+
+  <Accordion title="Futility Pruning (FP)">
+    At low depths (`depth < 15`), a quiet move is skipped if `eval + margin ≤ alpha`, where:
+
+    ```
+    margin = 79 * depth + 64 * history / 1024 + 84 * (eval >= beta) - 115
+    ```
+
+    This avoids searching moves that are unlikely to raise alpha even with ideal play.
+  </Accordion>
+
+  <Accordion title="Bad Noisy Futility Pruning (BNFP)">
+    A symmetric pruning rule for captures that have already failed SEE (the `BadNoisy` stage). Applied at `depth < 11` when `eval + 71 * depth + 68 * history / 1024 + 23 ≤ alpha`.
+  </Accordion>
+
+  <Accordion title="SEE Pruning">
+    Each move is tested against a Static Exchange Evaluation threshold before being searched. Moves that lose material even at minimum search depth are skipped:
+
+    ```rust
+    // Quiet moves
+    threshold = (-17 * depth² + 52 * depth - 21 * history / 1024 + 20).min(0)
+
+    // Captures
+    threshold = (-8 * depth² - 36 * depth - 32 * history / 1024 + 11).min(0)
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Extensions
+
+Extensions increase the search depth beyond the nominal value when a move deserves more scrutiny.
+
+### Singular extensions
+
+Before searching a position normally, Reckless checks whether the TT move is *singular* — the only move that avoids a loss. It re-searches the position with the TT move excluded and a reduced beta:
+
+```
+singular_beta  = tt_score - singular_margin
+singular_depth = (depth - 1) / 2
+```
+
+If the reduced search fails low (no move reaches `singular_beta`), the TT move is extended:
+
+| Condition | Extension |
+|-----------|-----------|
+| `score < singular_beta` | +1 ply |
+| `score < singular_beta - double_margin` | +2 plies |
+| `score < singular_beta - triple_margin` | +3 plies |
+
+### Multi-Cut
+
+If the singular re-search fails *high* (`score ≥ beta`) and the score is not decisive, a multi-cut return is triggered — indicating that multiple moves beat beta even without the TT move:
+
+```rust
+return (2 * score + beta) / 3;
+```
+
+### Negative extensions
+
+When the TT score already exceeds beta, or the node is a cut node, the search depth is reduced by 2 to avoid wasting time on already-failing positions.
+
+### Hindsight depth adjustments
+
+After evaluation, the engine compares the current eval to the eval two plies ago:
+
+- If the node was previously reduced heavily and `eval + prev_eval < 0`, depth is increased by 1 (position was worse than expected).
+- If `eval + prev_eval > 59` and the previous node had a reduction, depth is decreased by 1 (position is better than expected).
+
+## Late Move Reductions (LMR)
+
+Moves searched after the first are reduced in depth. The base reduction is:
+
+```rust
+reduction = 225 * (move_count.ilog2() * depth.ilog2())
+```
+
+This value is then adjusted by numerous factors:
+
+| Factor | Effect |
+|--------|--------|
+| Move count | Reduce more for later moves (`-68 * move_count`) |
+| Correction history magnitude | Reduce less when corrections are large |
+| Alpha raises so far | Reduce less after repeated alpha raises |
+| TT score below alpha | Reduce more |
+| TT depth below current depth | Reduce more |
+| Quiet move | Add base `+1806`; reduce by `history / 1024 * 166` |
+| Noisy move | Add base `+1449`; reduce by `history / 1024 * 109` |
+| PV node | Reduce less (subtract `424 + 433 * window / root_delta`) |
+| TT-PV node | Reduce less |
+| Cut node (non-PV) | Reduce more (`+1818`; extra `+2118` if no TT move) |
+| Not improving | Add up to `+1096` based on improvement magnitude |
+| In check after move | Reduce less (`-1021`) |
+| High cutoff count at child | Reduce more (`+1515`) |
+
+If the LMR search raises alpha, the depth is further adjusted:
+
+```rust
+new_depth += (score > best_score + 61)  as i32;  // +1
+new_depth += (score > best_score + 801) as i32;  // +2
+new_depth -= (score < best_score + 5 + reduced_depth) as i32; // -1
+```
+
+A full-depth re-search is then performed if `new_depth > reduced_depth`.
+
+## Quiescence search
+
+When `depth ≤ 0`, the main search drops into `qsearch`, which resolves tactical sequences. The key difference from the main search is that only captures (and check evasions) are generated.
+
+**Stand-pat:** If the position is not in check, the static evaluation is used as the baseline. If it already exceeds beta, we return immediately (no move can improve things further).
+
+**Move filtering:**
+- After 3 non-checking captures without raising alpha, the loop is broken (LMP).
+- A capture is skipped if its SEE value falls below `(alpha - eval) / 8 - 108`.
+
+Quiet moves are only considered when the position is in check (to find all legal evasions) or when the TT move is quiet and not an upper bound.
+
+The TT is probed and written in qsearch the same way as in the main search.
+
+## History updates
+
+After a beta cut-off, the move that caused it receives a **bonus** to its history score, while all moves searched before it receive a **malus**. This applies to:
+
+- Quiet history (bonus and malus scaled by depth)
+- Continuation histories (1, 2, 4, and 6 plies back)
+- Noisy history (for captures)
+
+When the search returns an upper bound (no move raised alpha), the move that was played at the previous ply receives a bonus to discourage the opponent from repeating it.
+
+## Multi-threaded voting
+
+Reckless uses a **soft stop voting** mechanism for parallel search. After completing each depth, each thread checks whether its soft time limit has been reached. If so, it casts a vote. When at least **65%** of threads have voted to stop, the search halts:
+
+```rust
+let majority = (thread_count * 65).div_ceil(100);
+if votes >= majority {
+    td.shared.status.set(Status::STOPPED);
+}
+```
+
+Threads that vote but then complete a new depth before the majority is reached can retract their vote.
+
+The **best move** across threads is selected by a weighted vote. Each thread scores its root moves by `depth × score` and the highest-scoring move wins.
+
+<Note>
+Thread 0 is the only thread that checks wall-clock time (`check_time`). All other threads rely on the shared `STOPPED` status flag set by thread 0 or the soft-stop vote.
+</Note>

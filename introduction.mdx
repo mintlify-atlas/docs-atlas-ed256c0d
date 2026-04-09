@@ -1,0 +1,63 @@
+---
+title: "Introduction"
+description: "Reckless is an open source competitive chess engine written in Rust, consistently ranked among the strongest engines in the world."
+keywords: ["chess engine", "UCI", "Reckless", "competitive", "Rust"]
+---
+
+Reckless is an open source competitive chess engine written in Rust. It communicates using the Universal Chess Interface (UCI) protocol and is designed to be used with a UCI-compatible GUI. Since its first release in May 2023, Reckless has climbed from a rating of ~2005 to over 3800, placing among the top two engines across major rating lists.
+
+Reckless competes regularly in major tournaments including the [Chess.com Computer Chess Championship (CCC)](https://www.chess.com/computer-chess-championship) and the [Top Chess Engine Championship (TCEC)](https://tcec-chess.com).
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="UCI protocol" icon="plug">
+    Full UCI support, compatible with any standard chess GUI or testing framework.
+  </Card>
+  <Card title="Multi-threaded search" icon="microchip">
+    Scales across up to 512 threads using shared-memory parallel search.
+  </Card>
+  <Card title="NNUE evaluation" icon="brain">
+    Neural network evaluation trained with [Bullet](https://github.com/jw1912/bullet) for accurate positional judgment.
+  </Card>
+  <Card title="Syzygy tablebases" icon="database">
+    Endgame tablebase support via the Fathom library for perfect endgame play.
+  </Card>
+  <Card title="Chess960 support" icon="shuffle">
+    Fischer Random Chess support via the `UCI_Chess960` option.
+  </Card>
+  <Card title="Profile-guided optimization" icon="gauge">
+    PGO builds available for maximum performance on your specific hardware.
+  </Card>
+</CardGroup>
+
+## Ratings
+
+Reckless has been tested extensively across major rating lists. The table below shows ratings for all released versions.
+
+| Version | [SPCC](https://www.sp-cc.de) | [CCRL Blitz](https://www.computerchess.org.uk/ccrl/404/) | [CCRL 40/15](https://www.computerchess.org.uk/ccrl/4040/) | Release date |
+| ------- | ---------------------------- | -------------------------------------------------------- | --------------------------------------------------------- | ------------ |
+| [v0.9.0](https://github.com/codedeliveryservice/Reckless/releases/tag/v0.9.0) | 3833 ± 4 \[#2\] | 3767 ± 13 \[#2\] | 3612 ± 19 \[#2\] | Mar 1, 2026 |
+| [v0.8.0](https://github.com/codedeliveryservice/Reckless/releases/tag/v0.8.0) | 3777 ± 4 \[#4\] | 3765 ± 14 \[#2\] | 3609 ± 11 \[#3\] | Aug 29, 2025 |
+| [v0.7.0](https://github.com/codedeliveryservice/Reckless/releases/tag/v0.7.0) | — | 3500 ± 12 \[#68\] | 3422 ± 12 \[#72\] | Aug 23, 2024 |
+| [v0.6.0](https://github.com/codedeliveryservice/Reckless/releases/tag/v0.6.0) | — | 3386 ± 15 \[#95\] | 3317 ± 15 \[#103\] | Mar 22, 2024 |
+| [v0.5.0](https://github.com/codedeliveryservice/Reckless/releases/tag/v0.5.0) | — | 3240 ± 17 \[#133\] | 3211 ± 17 \[#140\] | Feb 4, 2024 |
+| [v0.4.0](https://github.com/codedeliveryservice/Reckless/releases/tag/v0.4.0) | — | 2934 ± 17 \[#210\] | 2926 ± 16 \[#222\] | Dec 13, 2023 |
+| [v0.3.0](https://github.com/codedeliveryservice/Reckless/releases/tag/v0.3.0) | — | 2616 ± 19 \[#297\] | 2617 ± 19 \[#321\] | Nov 6, 2023 |
+| [v0.2.0](https://github.com/codedeliveryservice/Reckless/releases/tag/v0.2.0) | — | 2349 ± 18 \[#406\] | — | Oct 7, 2023 |
+| [v0.1.0](https://github.com/codedeliveryservice/Reckless/releases/tag/v0.1.0) | — | 2005 ± 18 \[#539\] | — | May 16, 2023 |
+
+## License
+
+Reckless is licensed under the [GNU Affero General Public License v3.0](https://www.gnu.org/licenses/agpl-3.0) (AGPL-3.0). The source code is available on [GitHub](https://github.com/codedeliveryservice/Reckless).
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Download a precompiled binary or build Reckless from source.
+  </Card>
+  <Card title="Quick start" icon="rocket" href="/quickstart">
+    Connect Reckless to a chess GUI and start playing.
+  </Card>
+</CardGroup>

@@ -1,0 +1,81 @@
+---
+title: "Building from source"
+description: "Compile Reckless locally with native CPU optimizations."
+---
+
+Building from source lets you produce a binary tuned exactly to your CPU, which is faster than the generic precompiled builds.
+
+## Prerequisites
+
+Before you build, make sure you have the following installed:
+
+- **Rust 1.88.0 or later** — install via [rustup](https://www.rust-lang.org/tools/install)
+- **Clang** — required to compile the [Fathom](https://github.com/jdart1/Fathom) library for Syzygy tablebase support (not needed if you build without the `syzygy` feature)
+
+## Build steps
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/codedeliveryservice/Reckless.git
+    cd Reckless
+    ```
+  </Step>
+
+  <Step title="Build the engine">
+    <Tabs>
+      <Tab title="With Syzygy support">
+        The `syzygy` feature is enabled by default. Run:
+
+        ```bash
+        cargo rustc --release -- -C target-cpu=native
+        ```
+
+        This requires Clang to be installed for the Fathom tablebase library.
+      </Tab>
+      <Tab title="Without Syzygy support">
+        Pass `--no-default-features` to disable the `syzygy` feature and remove the Clang dependency:
+
+        ```bash
+        cargo rustc --release --no-default-features -- -C target-cpu=native
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Run the engine">
+    After the build completes, the binary is at `./target/release/reckless`. Start it directly:
+
+    ```bash
+    ./target/release/reckless
+    ```
+
+    The engine speaks the UCI protocol, so it is designed to be launched by a GUI rather than used interactively. See [UCI options](/uci/options) for configuration details.
+  </Step>
+</Steps>
+
+## Native CPU optimizations
+
+The `-C target-cpu=native` flag tells the Rust compiler to use all instruction set extensions available on the machine you are building on (for example, AVX2 or AVX-512). The resulting binary will be faster than a generic build, but it will not run on CPUs that lack those extensions.
+
+If you need a portable binary, omit the flag:
+
+```bash
+cargo rustc --release
+```
+
+<Note>
+  The precompiled release binaries (`-avx512`, `-avx2`, `-generic`) are built targeting specific CPU feature levels so they run on a wide range of hardware. A native build will typically be at least as fast as `-avx512` on a capable CPU.
+</Note>
+
+## NUMA support
+
+On machines with many cores spread across multiple NUMA nodes (typically high-end workstations or servers), you can enable NUMA-aware thread scheduling with the `numa` feature:
+
+```bash
+cargo rustc --release --features numa -- -C target-cpu=native
+```
+
+<Tip>
+  The `numa` feature only affects performance on multi-socket or NUMA-architecture hardware. On a normal desktop or laptop, you will not see a difference.
+</Tip>
